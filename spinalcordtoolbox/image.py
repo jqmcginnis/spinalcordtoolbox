@@ -1759,76 +1759,91 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         im_in_rpi.save(temp_file_path, verbose=verbose)
         fnames_in.append(temp_file_path)
 
-    # if the images have geometrically different FOVs
-    # read all images
-    # get x_min
-    # get x_max
-    # get y_min
-    # get y_max
-
-    print("im_list", im_list)
-    print("fnames_in", fnames_in)
-
-    bounds_low = np.ones(3) * 3000
-    bounds_high = np.ones(3) * -3000
+    #  min, max
+    bounds_x = [10000, -10000]
+    bounds_y = [10000, -10000]
 
     for im_unpadded in fnames_in:
         im_nib = nib.load(im_unpadded)
         # even though computationally more demanding, less error-prone
         im_shape = im_nib.get_fdata().shape
-        local_bound_low = np.array(nib.affines.apply_affine(im_nib.affine, [0,0,0]))
-        local_bound_high = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+
+        x1, y1, _ = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+        x2, y2, _ = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+
+        xmin = np.amin([x1, x2])
+        xmax = np.amax([x1, x2])
+
+        ymin = np.amin([y1, y2])
+        ymax = np.amax([y1, y2])
+
+        local_bound_x = [xmin, xmax]
+        local_bound_y = [ymin, ymax]
 
         print("Image Local:")
-        print(local_bound_low)
-        print(local_bound_high)
+        print("X:", local_bound_x)
+        print("Y:", local_bound_y)
 
-        bounds_low = np.minimum(bounds_low, local_bound_low)
-        bounds_high = np.maximum(bounds_high, local_bound_high)
-
+        bounds_x = [np.amin([bounds_x[0], xmin]), np.amax([bounds_x[1], xmax])]
+        bounds_y = [np.amin([bounds_y[0], ymin]), np.amax([bounds_y[1], ymax])]
 
     print("Global:")
-    print(bounds_low)
-    print(bounds_high)
+    print("X:", bounds_x)
+    print("Y:", bounds_y)
+
     fnames_padded = []
 
     for i, im_in in enumerate(fnames_in):
         im_nib = nib.load(im_in)
-        xmin, ymin, _ = np.array(nib.affines.apply_affine(im_nib.affine, [0,0,0]))
+        x1, y1, _ = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
         im_shape = im_nib.get_fdata().shape
-        print(im_shape)
+
         spacing = im_nib.header["pixdim"][1:4]
-        xmax, ymax, _ = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
-        pad_xmin = np.array(np.abs(((bounds_low[0]-xmin)) / spacing[0])+1)#.astype(int)
-        pad_xmax = np.array(np.abs(((bounds_high[0]-xmax)) / spacing[0])+1)#.astype(int)
-        pad_ymin = np.array(np.abs(((bounds_low[1]-ymin)) / spacing[1])+1)#.astype(int)
-        pad_ymax = np.array(np.abs(((bounds_high[1]-ymax)) / spacing[1])+1)#.astype(int)
+        x2, y2, _ = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
 
-        #print("padding")
-        print(pad_xmin, pad_xmax, pad_ymin, pad_ymax)
+        xmin = np.amin([x1,x2])
+        xmax = np.amax([x1,x2])
 
-        #pad_xmin = 0
-        #pad_ymin = 0
-        #pad_xmax = 0
-        #pad_ymax = 0
+        ymin = np.amin([y1,y2])
+        ymax = np.amax([y1,y2])
+
+
+        pad_xmin = np.array(np.abs(((bounds_x[0]-xmin)) / spacing[0])+1)
+        pad_xmax = np.array(np.abs(((bounds_x[1]-xmax)) / spacing[0])+1)
+        pad_ymin = np.array(np.abs(((bounds_y[0]-ymin)) / spacing[1])+1)
+        pad_ymax = np.array(np.abs(((bounds_y[1]-ymax)) / spacing[1])+1)
+
+        print("Padding Xmin, Xmax, Ymin, Ymax", pad_xmin, pad_xmax, pad_ymin, pad_ymax)
+
         # pad the images
         temp_file_path = fnames_in[i]
+        # figure out a way of handling the indices
+
         im_in_rpi_padded = pad_image(Image(im_in), int(pad_xmin), int(pad_xmax), int(pad_ymin), int(pad_ymax), 0, 0)
         im_in_rpi_padded.save(temp_file_path, verbose=verbose)
         # debug the newly padded ones
         im_nib = nib.load(temp_file_path)
         im_shape = im_nib.get_fdata().shape
         print(im_shape)
-        local_bound_low = np.array(nib.affines.apply_affine(im_nib.affine, [0,0,0]))
-        local_bound_high = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
 
-        print(f"Bounds after padding, image {i}:")
-        print(local_bound_low)
-        print(local_bound_high)
+        x1, y1, _ = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+        x2, y2, _ = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+
+        xmin = np.amin([x1, x2])
+        xmax = np.amax([x1, x2])
+
+        ymin = np.amin([y1, y2])
+        ymax = np.amax([y1, y2])
+
+        local_bound_x = [xmin, xmax]
+        local_bound_y = [ymin, ymax]
+
+        print("Padded Local:")
+        print("X:", local_bound_x)
+        print("Y:", local_bound_y)
 
         im_in_rpi_padded.save(f"/home/juli/Desktop/{i}.nii.gz", verbose=verbose)
         fnames_padded.append(temp_file_path)
-
 
     # C++ stitching module by Glocker et al. uses the first image as reference image
     # and allocates an array (to be filled by subsequent images along the z-axis)
@@ -1854,12 +1869,21 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
     print(f"Bounds after stitching:")
 
     im_nib = nib.load(fname_out)
-    im_shape = im_nib.get_fdata().shape
-    print(im_shape)
-    local_bound_low = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-    local_bound_high = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
-    print(local_bound_low)
-    print(local_bound_high)
+    x1, y1, _ = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+    x2, y2, _ = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+
+    xmin = np.amin([x1, x2])
+    xmax = np.amax([x1, x2])
+
+    ymin = np.amin([y1, y2])
+    ymax = np.amax([y1, y2])
+
+    local_bound_x = [xmin, xmax]
+    local_bound_y = [ymin, ymax]
+
+    print("Stitching:")
+    print("X:", local_bound_x)
+    print("Y:", local_bound_y)
 
     # reorient the output image back to the original orientation of the input images
     im_out = change_orientation(Image(fname_out), orig_ornt)
