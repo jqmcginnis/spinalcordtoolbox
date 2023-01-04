@@ -1760,149 +1760,91 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         fnames_in.append(temp_file_path)
 
     #  min, max
-    bounds_x = [10000, -10000]
-    bounds_y = [10000, -10000]
-    bounds_z = [10000, -10000]
+    x_all = np.zeros((2, len(fnames_in)))
+    y_all = np.zeros((2, len(fnames_in)))
+    z_all = np.zeros((2, len(fnames_in)))
+    x_dir = []
+    y_dir = []
+    z_dir = []
 
-    n = 0
-    for im_unpadded in fnames_in:
+    for i, im_unpadded in enumerate(fnames_in):
         im_nib = nib.load(im_unpadded)
         # even though computationally more demanding, less error-prone
         im_shape = im_nib.get_fdata().shape
 
-        x1, y1, z1 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-        x2, y2, z2 = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+        x0, y0, z0 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+        x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
 
-        xmin = np.amin([x1, x2])
-        xmax = np.amax([x1, x2])
+        x_dir.append([1 if x0 > x_max else 0])
+        y_dir.append([1 if y0 > y_max else 0])
+        z_dir.append([1 if z0 > z_max else 0])
 
-        ymin = np.amin([y1, y2])
-        ymax = np.amax([y1, y2])
+        x_all[:,i] = np.array([x0, x_max])
+        y_all[:,i] = np.array([y0, y_max])
+        z_all[:,i] = np.array([z0, z_max])
 
-        zmin = np.amin([z1, z2])
-        zmax = np.amax([z1, z2])
-
-        local_bound_x = [xmin, xmax]
-        local_bound_y = [ymin, ymax]
-        local_bound_z = [zmin, zmax]
-
-        print(f"Image {n} Local:")
-        print("X:", local_bound_x)
-        print("Y:", local_bound_y)
-        print("Z:", local_bound_z)
-
-        bounds_x = [np.amin([bounds_x[0], xmin]), np.amax([bounds_x[1], xmax])]
-        bounds_y = [np.amin([bounds_y[0], ymin]), np.amax([bounds_y[1], ymax])]
-        bounds_z = [np.amin([bounds_z[0], zmin]), np.amax([bounds_z[1], zmax])]
-        n+=1
-
-    print("Global:")
-    print("X:", bounds_x)
-    print("Y:", bounds_y)
-    print("Z:", bounds_z)
+    print("Covered Coordinate Space (World Coordinates)")
+    print("X:", x_all[0,:])
+    print("Y:", y_all)
+    print("Z:", z_all)
 
     fnames_padded = []
-    n = 0
 
     for i, im_in in enumerate(fnames_in):
         im_nib = nib.load(im_in)
-        im_shape = im_nib.get_fdata().shape
-        x1, y1, _ = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+        aff = im_nib.affine
+        A = aff[:3, :3]
+        c = aff[:3, 3:4]
 
-        spacing = im_nib.header["pixdim"][1:4]
-        print("Spacing:", spacing)
+        x0, y0, z0 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+        x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_nib.shape))
 
-        x2, y2, _ = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+        print(f"Before padding image {i}")
+        print(f'x0:{x0}, xmax:{x_max}')
+        print(f'y0:{y0}, ymax:{y_max}')
+        print(f'z0:{z0}, zmax:{z_max}')
 
-        xmin = np.amin([x1, x2])
-        xmax = np.amax([x1, x2])
+        new_bounds_0 = np.array([np.max(x_all[0,:]),np.min(y_all[0,:]),np.min(z_all[0,:])]).flatten()
+        new_bounds_max = np.array([np.min(x_all[1,:]),np.max(y_all[1,:]),np.max(z_all[1,:])]).flatten()
 
-        ymin = np.amin([y1, y2])
-        ymax = np.amax([y1, y2])
+        print("New Bounds 0", new_bounds_0)
+        print("New Bounds Max", new_bounds_max)
 
-        # add +1 due to rounding issues - even if it's a partial voxel we still need it
-        pad_xmin = np.array(np.abs(((bounds_x[0]-xmin)) / spacing[0])+1).astype(int)
-        pad_xmax = np.array(np.abs(((bounds_x[1]-xmax)) / spacing[0])+1).astype(int)
-        pad_ymin = np.array(np.abs(((bounds_y[0]-ymin)) / spacing[1])+1).astype(int)
-        pad_ymax = np.array(np.abs(((bounds_y[1]-ymax)) / spacing[1])+1).astype(int)
+        sol_0 = (new_bounds_0 - c.T)
+        solution_0 = np.linalg.solve(A, sol_0.T)
 
-        print(f"Padding Xmin:{pad_xmin}, Xmax:{pad_xmax}, Ymin:{pad_ymin}, Ymax:{pad_ymax}")
+        print("Number of voxels left",solution_0)
 
+        sol_max = (new_bounds_max - c.T)
+        solution_max= np.linalg.solve(A, sol_max.T)
 
-        # x1 value at 0
-        # x2 value at 255
+        print("Number of voxxels right:", solution_max)
 
-        # Case 1 (axial):
-        # x1 = 56
-        # x2 = -63
-        # y1 = -66
-        # y2 = 71
+        pad_x_left, pad_y_left, pad_z_left = np.ceil(np.abs(solution_0))
+        pad_x_right, pad_y_right, pad_z_right = np.ceil(np.abs(solution_max))
 
-        #print("X1:", x1)
-        #print("X2:", x2)
-
-        #print("Y1:", y1)
-        #print("Y2:", y2)
-
-        # Case 2:
-        # x1 = 11
-        # x2 = -16
-        # y1 = -132
-        # y2 = 127
-
-
-        # coordinate left smaller than right
-        if x1 < x2:
-            pad_x_right = pad_xmax
-            pad_x_left = pad_xmin
-        # coordinate right smaller than left
-        else:
-            pad_x_right = pad_xmin
-            pad_x_left = pad_xmax
-
-        # coordinate up smaller than down
-        if y2 > y1:
-            pad_y_up = pad_ymin
-            pad_y_down = pad_ymax
-
-        # coordinate down smaller than up
-        else:
-            pad_y_down = pad_ymin
-            pad_y_up = pad_ymax
-
+        print(pad_x_left)
+        print(pad_x_right)
+        print(pad_y_left)
 
         # pad the images
         temp_file_path = fnames_in[i]
         # figure out a way of handling the indices
 
-        im_in_rpi_padded = pad_image(Image(im_in), int(pad_x_left), int(pad_x_right), int(pad_y_down), int(pad_y_up), 0, 0)
+        im_in_rpi_padded = pad_image(Image(im_in), int(pad_x_left), int(pad_x_right), int(pad_y_left),
+                                     int(pad_y_right), int(pad_z_left), int(pad_z_right))
         im_in_rpi_padded.save(temp_file_path, verbose=verbose)
         # debug the newly padded ones
         im_nib = nib.load(temp_file_path)
         im_shape = im_nib.get_fdata().shape
-        print(im_shape)
 
-        x1, y1, z1 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-        x2, y2, z2 = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+        x0, y0, z0 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+        x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_nib.shape))
 
-        xmin = np.amin([x1, x2])
-        xmax = np.amax([x1, x2])
-
-        ymin = np.amin([y1, y2])
-        ymax = np.amax([y1, y2])
-
-        zmin = np.amin([z1, z2])
-        zmax = np.amax([z1, z2])
-
-        local_bound_x = [xmin, xmax]
-        local_bound_y = [ymin, ymax]
-        local_bound_z = [zmin, zmax]
-
-        print(f"Padded Image {n} Local:")
-        print("X:", local_bound_x)
-        print("Y:", local_bound_y)
-        print("Z:", local_bound_z)
-        n+=1
+        print("After padding")
+        print(f'x0:{x0}, xmax:{x_max}')
+        print(f'y0:{y0}, ymax:{y_max}')
+        print(f'z0:{z0}, zmax:{z_max}')
 
         im_in_rpi_padded.save(f"/home/juli/Desktop/{i}.nii.gz", verbose=verbose)
         fnames_padded.append(temp_file_path)
@@ -1932,17 +1874,17 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
 
     im_nib = nib.load(fname_out)
     im_shape = im_nib.get_fdata().shape
-    x1, y1, z1 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-    x2, y2, z2 = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+    x0, y0, z1 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
+    x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
 
-    xmin = np.amin([x1, x2])
-    xmax = np.amax([x1, x2])
+    xmin = np.amin([x0, x_max])
+    xmax = np.amax([x0, x_max])
 
-    ymin = np.amin([y1, y2])
-    ymax = np.amax([y1, y2])
+    ymin = np.amin([y0, y_max])
+    ymax = np.amax([y0, y_max])
 
-    zmin = np.amin([z1, z2])
-    zmax = np.amax([z1, z2])
+    zmin = np.amin([z1, z_max])
+    zmax = np.amax([z1, z_max])
 
     local_bound_x = [xmin, xmax]
     local_bound_y = [ymin, ymax]
