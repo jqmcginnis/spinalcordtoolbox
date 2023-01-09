@@ -1759,141 +1759,286 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         im_in_rpi.save(temp_file_path, verbose=verbose)
         fnames_in.append(temp_file_path)
 
-    #  min, max
-    x_all = np.zeros((2, len(fnames_in)))
-    y_all = np.zeros((2, len(fnames_in)))
-    z_all = np.zeros((2, len(fnames_in)))
-    x_dir = []
-    y_dir = []
-    z_dir = []
+    corners = []
+    transformed_corners = []
 
     for i, im_unpadded in enumerate(fnames_in):
         im_nib = nib.load(im_unpadded)
+        im_affine = im_nib.affine
         # even though computationally more demanding, less error-prone
         im_shape = im_nib.get_fdata().shape
 
-        x0, y0, z0 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-        x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+        # Load the corner coordinates for each image
+        arr_corners = np.array([[0, 0, 0],
+                            [im_shape[0], 0, 0],
+                            [0, im_shape[1], 0],
+                            [im_shape[0], im_shape[1], 0],
+                            [0, 0, im_shape[2]],
+                            [im_shape[0], 0, im_shape[2]],
+                            [0, im_shape[1], im_shape[2]],
+                            [im_shape[0], im_shape[1], im_shape[2]]])
 
-        x_dir.append([1 if x0 > x_max else 0])
-        y_dir.append([1 if y0 > y_max else 0])
-        z_dir.append([1 if z0 > z_max else 0])
+        corners.append(arr_corners)
 
-        x_all[:,i] = np.array([x0, x_max])
-        y_all[:,i] = np.array([y0, y_max])
-        z_all[:,i] = np.array([z0, z_max])
+        # Transform the corner coordinates using the affine matrix
 
-    print("Covered Coordinate Space (World Coordinates)")
-    print("X:", x_all[0,:])
-    print("Y:", y_all)
-    print("Z:", z_all)
+        for row in arr_corners:
+            transformed_corners.append(nib.affines.apply_affine(aff=im_affine, pts=row))
+
+        # Transform the corner coordinates using the affine matrix
+        # transformed_corners.append(np.dot(corners, im_affine[:3, :3]) + np.repeat(im_affine[:3,3:4], 8, axis=1).T)
+        # transformed_corners.append(np.apply_along_axis(nib.affines.apply_affine, axis=1, arr=corners, aff=im_affine, pts=corners))
+
+    coordinates = np.stack(transformed_corners)
+
+    print(coordinates)
+
+    # Find the minimum and maximum coordinates for x, y, and z
+    xmin_idx, xmax_idx = np.argmin(coordinates[:, 0]), np.argmax(coordinates[:, 0])
+    ymin_idx, ymax_idx = np.argmin(coordinates[:, 1]), np.argmax(coordinates[:, 1])
+    zmin_idx, zmax_idx = np.argmin(coordinates[:, 2]), np.argmax(coordinates[:, 2])
+
+    # Print the minimum and maximum coordinates
+    print(f"Minimum x coordinate: {xmin_idx}, Point {coordinates[xmin_idx]}")
+    print(f"Maximum x coordinate: {xmax_idx}, Point {coordinates[xmax_idx]}")
+    print(f"Minimum y coordinate: {ymin_idx}, Point {coordinates[ymin_idx]}")
+    print(f"Maximum y coordinate: {ymax_idx}, Point {coordinates[ymax_idx]}")
+    print(f"Minimum z coordinate: {zmin_idx}, Point {coordinates[zmin_idx]}")
+    print(f"Maximum z coordinate: {zmax_idx}, Point {coordinates[zmax_idx]}")
+
+    # alternative create a new grid X,Y,Z that spans the whole image area
+
+    #
+
+    import SimpleITK as sitk
+
+    # Create the grid source
+    grid_source = sitk.GridSource(outputPixelType=sitk.sitkInt16,
+                                  origin= tuple(coordinates[zmin_idx]),
+                                  size=(300, 300, 900),
+                                  sigma=(0.0, 0.0, 0.0),
+                                  gridSpacing=(0.52, 0.52, 5.0))
+
+    # Generate the grid image
+    # grid_image = grid_source.Execute()
+
+    fnames_in_sorted = sorted(fnames_in, key=lambda fname: max(Image(fname).dim), reverse=True)
+
+    ref_img = grid_source
+    resampled_images = []
+
+    for i in range(0, len(fnames_in_sorted)):
+        img = sitk.ReadImage(fnames_in_sorted[i])
+        resampled_images.append(sitk.Resample(img, ref_img, sitk.Transform(), sitk.sitkLinear, 0, img.GetPixelID()))
+
+    out = resampled_images[0]
+
+    for i in range(1, len(resampled_images)):
+        mask_out = sitk.Equal(out, 0)
+        out = sitk.Add(out, resampled_images[i])
+        mask_current = sitk.Equal(resampled_images[i], 0)
+        mask_overlap = sitk.Cast(sitk.Or(mask_out, mask_current), sitk.sitkFloat32)
+        weighting = sitk.Divide(sitk.Add(mask_overlap, 1), 2)  # 2)
+        out = sitk.Cast(sitk.Multiply(sitk.Cast(out, sitk.sitkFloat32), sitk.Cast(weighting, sitk.sitkFloat32)),
+                        sitk.sitkInt16)
+
+    sitk.WriteImage(out, fname_out)
+    sitk.WriteImage(out, "grid_out.nii.gz")
+
+    # reorient the output image back to the original orientation of the input images
+    im_out = change_orientation(Image(fname_out), orig_ornt)
+
+    # return im_out
+
 
     fnames_padded = []
 
     for i, im_in in enumerate(fnames_in):
+
         im_nib = nib.load(im_in)
-        aff = im_nib.affine
-        A = aff[:3, :3]
-        c = aff[:3, 3:4]
 
-        x0, y0, z0 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-        x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_nib.shape))
+        im_affine = im_nib.affine
+        # even though computationally more demanding, less error-prone
+        im_shape = im_nib.get_fdata().shape
 
-        print(f"Before padding image {i}")
-        print(f'x0:{x0}, xmax:{x_max}')
-        print(f'y0:{y0}, ymax:{y_max}')
-        print(f'z0:{z0}, zmax:{z_max}')
+        arr = []
 
-        new_bounds_0 = np.array([np.max(x_all[0,:]),np.min(y_all[0,:]),np.min(z_all[0,:])]).flatten()
-        new_bounds_max = np.array([np.min(x_all[1,:]),np.max(y_all[1,:]),np.max(z_all[1,:])]).flatten()
+        # Load the corner coordinates for each image
+        arr_corners = np.array([[0, 0, 0],
+                            [im_shape[0], 0, 0],
+                            [0, im_shape[1], 0],
+                            [im_shape[0], im_shape[1], 0],
+                            [0, 0, im_shape[2]],
+                            [im_shape[0], 0, im_shape[2]],
+                            [0, im_shape[1], im_shape[2]],
+                            [im_shape[0], im_shape[1], im_shape[2]]])
 
-        print("New Bounds 0", new_bounds_0)
-        print("New Bounds Max", new_bounds_max)
+        for row in arr_corners:
+            arr.append(nib.affines.apply_affine(aff=im_affine, pts=row))
 
-        sol_0 = (new_bounds_0 - c.T)
-        solution_0 = np.linalg.solve(A, sol_0.T)
+        arr = np.stack(arr)
 
-        print("Number of voxels left",solution_0)
+        A = im_affine[:3, :3]
 
-        sol_max = (new_bounds_max - c.T)
-        solution_max= np.linalg.solve(A, sol_max.T)
+        # now compare the min_x of arr to the min_x of arr
+        local_min_x, local_max_x = np.argmin(arr[:, 0]), np.argmax(arr[:, 0])
+        local_min_y, local_max_y = np.argmin(arr[:, 1]), np.argmax(arr[:, 1])
+        local_min_z, local_max_z = np.argmin(arr[:, 2]), np.argmax(arr[:, 2])
 
-        print("Number of voxxels right:", solution_max)
+        # for each point determine the maximum padding required to do it!
+        c = arr[local_min_x]
+        y = transformed_corners[xmin_idx]
+        sol_0 = y-c
+        z1 = np.linalg.solve(A, sol_0.T)
 
-        pad_x_left, pad_y_left, pad_z_left = np.ceil(np.abs(solution_0))
-        pad_x_right, pad_y_right, pad_z_right = np.ceil(np.abs(solution_max))
+        #print("Local Minimum of point", arr[local_min_x])
+        #print("Glocal Minimum of points", transformed_corners[xmin_idx])
+        #print("Padding xmin: ", z1)
 
-        print(pad_x_left)
-        print(pad_x_right)
-        print(pad_y_left)
+        #print("#############################################")
+
+        # for each point determine the maximum padding required to do it!
+        c = arr[local_max_x]
+        y = transformed_corners[xmax_idx]
+        sol_0 = y-c
+        z2 = np.linalg.solve(A, sol_0.T)
+
+        #print("Local maximum of point", arr[local_max_x])
+        #print("Glocal maximum of points", transformed_corners[xmax_idx])
+        #print("Padding xmax:", z2)
+
+        #print("#############################################")
+
+        # for each point determine the maximum padding required to do it!
+        c = arr[local_min_y]
+        y = transformed_corners[ymin_idx]
+        sol_0 = y-c
+        z3 = np.linalg.solve(A, sol_0.T)
+
+        #print("Local Minimum of point", arr[local_min_y])
+        #print("Glocal Minimum of points", transformed_corners[ymin_idx])
+        #print("Padding xmin: ", z3)
+
+        #print("#############################################")
+
+        # for each point determine the maximum padding required to do it!
+        c = arr[local_max_y]
+        y = transformed_corners[ymax_idx]
+        sol_0 = y-c
+        z4 = np.linalg.solve(A, sol_0.T)
+
+        #print("Local maximum of point", arr[local_max_y])
+        #print("Glocal maximum of points", transformed_corners[ymax_idx])
+        #print("Padding xmax:", z4)
+
+        #print("#############################################")
+
+        # for each point determine the maximum padding required to do it!
+        c = arr[local_min_z]
+        y = transformed_corners[zmin_idx]
+        sol_0 = y-c
+        z5 = np.linalg.solve(A, sol_0.T)
+
+        #print("Local Minimum of point", arr[local_min_z])
+        #print("Glocal Minimum of points", transformed_corners[zmin_idx])
+        #print("Padding xmin: ", z5)
+
+        #print("#############################################")
+
+        # for each point determine the maximum padding required to do it!
+        c = arr[local_max_z]
+        y = transformed_corners[zmax_idx]
+        sol_0 = y-c
+        z6 = np.linalg.solve(A, sol_0.T)
+
+        #print("Local maximum of point", arr[local_max_z])
+        #print("Glocal maximum of points", transformed_corners[zmax_idx])
+        #print("Padding xmax:", z6)
+
+        #print("#############################################")
+
+        padding = np.stack([z1, z2, z3, z4, z5, z6])
+
+        # X0 > Xmax
+        if arr[0,0] > arr[1,0]:
+            pad_x_i, pad_x_f = np.ceil(np.abs(np.min(padding [:, 0]))), np.ceil(np.abs(np.max(padding [:, 0])))
+        else:
+            pad_x_i, pad_x_f = np.ceil(np.abs(np.max(padding[:, 0]))), np.ceil(np.abs(np.min(padding[:, 0])))
+
+        # Y0 > Ymax
+        if arr[0,1] > arr[2,1]:
+            pad_y_i, pad_y_f = np.ceil(np.abs(np.min(padding[:, 1]))), np.ceil(np.abs(np.max(padding[:, 1])))
+        else:
+            pad_y_i, pad_y_f = np.ceil(np.abs(np.max(padding[:, 1]))), np.ceil(np.abs(np.min(padding[:, 1])))
+
+        # Z0 > Zmax
+        if arr[0,2] < arr[4,2]:
+            pad_z_i, pad_z_f = np.ceil(np.abs(np.min(padding[:, 2]))), np.ceil(np.abs(np.max(padding[:, 2])))
+        else:
+            pad_z_i, pad_z_f = np.ceil(np.abs(np.max(padding[:, 2]))), np.ceil(np.abs(np.min(padding[:, 2])))
+
+        print("Padding X", pad_x_f, pad_x_i)
+        print("Padding Y", pad_y_f, pad_y_i)
+        print("Padding Z", pad_z_f, pad_z_i)
 
         # pad the images
         temp_file_path = fnames_in[i]
         # figure out a way of handling the indices
 
-        im_in_rpi_padded = pad_image(Image(im_in), int(pad_x_left), int(pad_x_right), int(pad_y_left),
-                                     int(pad_y_right), int(pad_z_left), int(pad_z_right))
+        im_in_rpi_padded = pad_image(Image(im_in), int(pad_x_i), int(pad_x_f), int(pad_y_i),
+                                     int(pad_y_f), int(pad_z_i), int(pad_z_f))
         im_in_rpi_padded.save(temp_file_path, verbose=verbose)
+
+        print("After image padding.:")
+
         # debug the newly padded ones
         im_nib = nib.load(temp_file_path)
+
+        im_affine = im_nib.affine
+        # even though computationally more demanding, less error-prone
         im_shape = im_nib.get_fdata().shape
 
-        x0, y0, z0 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-        x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_nib.shape))
+        arr = []
 
-        print("After padding")
-        print(f'x0:{x0}, xmax:{x_max}')
-        print(f'y0:{y0}, ymax:{y_max}')
-        print(f'z0:{z0}, zmax:{z_max}')
+        # Load the corner coordinates for each image
+        arr_corners = np.array([[0, 0, 0],
+                            [im_shape[0], 0, 0],
+                            [0, im_shape[1], 0],
+                            [im_shape[0], im_shape[1], 0],
+                            [0, 0, im_shape[2]],
+                            [im_shape[0], 0, im_shape[2]],
+                            [0, im_shape[1], im_shape[2]],
+                            [im_shape[0], im_shape[1], im_shape[2]]])
 
-        im_in_rpi_padded.save(f"/home/juli/Desktop/{i}.nii.gz", verbose=verbose)
+        for row in arr_corners:
+            arr.append(nib.affines.apply_affine(aff=im_affine, pts=row))
         fnames_padded.append(temp_file_path)
 
-    # C++ stitching module by Glocker et al. uses the first image as reference image
-    # and allocates an array (to be filled by subsequent images along the z-axis)
-    # based on the dimensions (x,y) of the reference image.
-    # As subsequent images are padded to the x-/y- dimensions of the reference image,
-    # it is important to use the image with the largest dimensions as the first
-    # argument to the input of the C++ binary, to ensure the images are not cropped.
 
-    # not sure if we still need this!
     # order fs_names in descending order based on dimensions (largest -> smallest)
     fnames_in_sorted = sorted(fnames_padded, key=lambda fname: max(Image(fname).dim), reverse=True)
-    # fnames_in_sorted = sorted(fnames_in, key=lambda fname: max(Image(fname).dim), reverse=True)
 
-    # ensure that a tmp_path is used for the output of the stitching binary, since sct_image will re-save the image
-    fname_out = os.path.join(path_tmp, os.path.basename(fname_out))
+    import SimpleITK as sitk
 
-    cmd = ['isct_stitching', '-i'] + fnames_in_sorted + ['-o', fname_out, '-a']
-    status, output = run_proc(cmd, verbose=verbose, is_sct_binary=True)
-    if status != 0:
-        raise RuntimeError(f"Subprocess call to `isct_stitching` returned exit code {status} along with the following "
-                           f"output:\n{output}")
+    ref_img = sitk.ReadImage(fnames_in_sorted[0])
+    resampled_images = []
 
-    print("Bounds after stitching:")
+    for i in range(1, len(fnames_in_sorted)):
+        img = sitk.ReadImage(fnames_in_sorted[i])
+        resampled_images.append(sitk.Resample(img, ref_img, sitk.Transform(), sitk.sitkLinear, 0, img.GetPixelID()))
 
-    im_nib = nib.load(fname_out)
-    im_shape = im_nib.get_fdata().shape
-    x0, y0, z1 = np.array(nib.affines.apply_affine(im_nib.affine, [0, 0, 0]))
-    x_max, y_max, z_max = np.array(nib.affines.apply_affine(im_nib.affine, im_shape))
+    out = ref_img
 
-    xmin = np.amin([x0, x_max])
-    xmax = np.amax([x0, x_max])
+    for i in range(len(resampled_images)):
+        mask_out = sitk.Equal(out, 0)
+        out = sitk.Add(out, resampled_images[i])
+        mask_current = sitk.Equal(resampled_images[i], 0)
+        mask_overlap = sitk.Cast(sitk.Or(mask_out, mask_current), sitk.sitkFloat32)
+        weighting = sitk.Divide(sitk.Add(mask_overlap, 1), 2)  # 2)
+        out = sitk.Cast(sitk.Multiply(sitk.Cast(out, sitk.sitkFloat32), sitk.Cast(weighting, sitk.sitkFloat32)),sitk.sitkInt16)
 
-    ymin = np.amin([y0, y_max])
-    ymax = np.amax([y0, y_max])
-
-    zmin = np.amin([z1, z_max])
-    zmax = np.amax([z1, z_max])
-
-    local_bound_x = [xmin, xmax]
-    local_bound_y = [ymin, ymax]
-    local_bound_z = [zmin, zmax]
-
-    print("Stitching:")
-    print("X:", local_bound_x)
-    print("Y:", local_bound_y)
-    print("Z:", local_bound_z)
+    sitk.WriteImage(out, fname_out)
+    sitk.WriteImage(out, "non_grid_out.nii.gz")
 
     # reorient the output image back to the original orientation of the input images
     im_out = change_orientation(Image(fname_out), orig_ornt)
