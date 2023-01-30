@@ -1770,13 +1770,13 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
 
         # Load the corner coordinates for each image
         arr_corners = np.array([[0, 0, 0],
-                            [im_shape[0], 0, 0],
-                            [0, im_shape[1], 0],
-                            [im_shape[0], im_shape[1], 0],
-                            [0, 0, im_shape[2]],
-                            [im_shape[0], 0, im_shape[2]],
-                            [0, im_shape[1], im_shape[2]],
-                            [im_shape[0], im_shape[1], im_shape[2]]])
+                                [im_shape[0], 0, 0],
+                                [0, im_shape[1], 0],
+                                [im_shape[0], im_shape[1], 0],
+                                [0, 0, im_shape[2]],
+                                [im_shape[0], 0, im_shape[2]],
+                                [0, im_shape[1], im_shape[2]],
+                                [im_shape[0], im_shape[1], im_shape[2]]])
 
         corners.append(arr_corners)
 
@@ -1814,7 +1814,7 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
 
     # Create the grid source
     grid_source = sitk.GridSource(outputPixelType=sitk.sitkInt16,
-                                  origin= tuple(coordinates[zmin_idx]),
+                                  origin=tuple(coordinates[zmin_idx]),
                                   size=(300, 300, 900),
                                   sigma=(0.0, 0.0, 0.0),
                                   gridSpacing=(0.52, 0.52, 5.0))
@@ -1850,7 +1850,6 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
 
     # return im_out
 
-
     fnames_padded = []
 
     for i, im_in in enumerate(fnames_in):
@@ -1865,13 +1864,13 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
 
         # Load the corner coordinates for each image
         arr_corners = np.array([[0, 0, 0],
-                            [im_shape[0], 0, 0],
-                            [0, im_shape[1], 0],
-                            [im_shape[0], im_shape[1], 0],
-                            [0, 0, im_shape[2]],
-                            [im_shape[0], 0, im_shape[2]],
-                            [0, im_shape[1], im_shape[2]],
-                            [im_shape[0], im_shape[1], im_shape[2]]])
+                                [im_shape[0], 0, 0],
+                                [0, im_shape[1], 0],
+                                [im_shape[0], im_shape[1], 0],
+                                [0, 0, im_shape[2]],
+                                [im_shape[0], 0, im_shape[2]],
+                                [0, im_shape[1], im_shape[2]],
+                                [im_shape[0], im_shape[1], im_shape[2]]])
 
         for row in arr_corners:
             arr.append(nib.affines.apply_affine(aff=im_affine, pts=row))
@@ -1891,11 +1890,9 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         sol_0 = y-c
         z1 = np.linalg.solve(A, sol_0.T)
 
-        #print("Local Minimum of point", arr[local_min_x])
-        #print("Glocal Minimum of points", transformed_corners[xmin_idx])
-        #print("Padding xmin: ", z1)
-
-        #print("#############################################")
+        print("Local Minimum of point", arr[local_min_x])
+        print("Glocal Minimum of points", transformed_corners[xmin_idx])
+        print("Padding xmin: ", z1)
 
         # for each point determine the maximum padding required to do it!
         c = arr[local_max_x]
@@ -1903,11 +1900,11 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         sol_0 = y-c
         z2 = np.linalg.solve(A, sol_0.T)
 
-        #print("Local maximum of point", arr[local_max_x])
-        #print("Glocal maximum of points", transformed_corners[xmax_idx])
-        #print("Padding xmax:", z2)
+        print("Local maximum of point", arr[local_max_x])
+        print("Glocal maximum of points", transformed_corners[xmax_idx])
+        print("Padding xmax:", z2)
 
-        #print("#############################################")
+        print("#############################################")
 
         # for each point determine the maximum padding required to do it!
         c = arr[local_min_y]
@@ -1915,11 +1912,11 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         sol_0 = y-c
         z3 = np.linalg.solve(A, sol_0.T)
 
-        #print("Local Minimum of point", arr[local_min_y])
-        #print("Glocal Minimum of points", transformed_corners[ymin_idx])
-        #print("Padding xmin: ", z3)
+        print("Local Minimum of point", arr[local_min_y])
+        print("Glocal Minimum of points", transformed_corners[ymin_idx])
+        print("Padding xmin: ", z3)
 
-        #print("#############################################")
+        print("#############################################")
 
         # for each point determine the maximum padding required to do it!
         c = arr[local_max_y]
@@ -1927,11 +1924,11 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         sol_0 = y-c
         z4 = np.linalg.solve(A, sol_0.T)
 
-        #print("Local maximum of point", arr[local_max_y])
-        #print("Glocal maximum of points", transformed_corners[ymax_idx])
-        #print("Padding xmax:", z4)
+        print("Local maximum of point", arr[local_max_y])
+        print("Glocal maximum of points", transformed_corners[ymax_idx])
+        print("Padding xmax:", z4)
 
-        #print("#############################################")
+        print("#############################################")
 
         # for each point determine the maximum padding required to do it!
         c = arr[local_min_z]
@@ -1939,11 +1936,11 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         sol_0 = y-c
         z5 = np.linalg.solve(A, sol_0.T)
 
-        #print("Local Minimum of point", arr[local_min_z])
-        #print("Glocal Minimum of points", transformed_corners[zmin_idx])
-        #print("Padding xmin: ", z5)
+        print("Local Minimum of point", arr[local_min_z])
+        print("Glocal Minimum of points", transformed_corners[zmin_idx])
+        print("Padding xmin: ", z5)
 
-        #print("#############################################")
+        print("#############################################")
 
         # for each point determine the maximum padding required to do it!
         c = arr[local_max_z]
@@ -1951,28 +1948,28 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         sol_0 = y-c
         z6 = np.linalg.solve(A, sol_0.T)
 
-        #print("Local maximum of point", arr[local_max_z])
-        #print("Glocal maximum of points", transformed_corners[zmax_idx])
-        #print("Padding xmax:", z6)
+        print("Local maximum of point", arr[local_max_z])
+        print("Glocal maximum of points", transformed_corners[zmax_idx])
+        print("Padding xmax:", z6)
 
-        #print("#############################################")
+        print("#############################################")
 
         padding = np.stack([z1, z2, z3, z4, z5, z6])
 
         # X0 > Xmax
-        if arr[0,0] > arr[1,0]:
-            pad_x_i, pad_x_f = np.ceil(np.abs(np.min(padding [:, 0]))), np.ceil(np.abs(np.max(padding [:, 0])))
+        if arr[0, 0] > arr[1, 0]:
+            pad_x_i, pad_x_f = np.ceil(np.abs(np.min(padding[:, 0]))), np.ceil(np.abs(np.max(padding[:, 0])))
         else:
             pad_x_i, pad_x_f = np.ceil(np.abs(np.max(padding[:, 0]))), np.ceil(np.abs(np.min(padding[:, 0])))
 
         # Y0 > Ymax
-        if arr[0,1] > arr[2,1]:
+        if arr[0, 1] > arr[2, 1]:
             pad_y_i, pad_y_f = np.ceil(np.abs(np.min(padding[:, 1]))), np.ceil(np.abs(np.max(padding[:, 1])))
         else:
             pad_y_i, pad_y_f = np.ceil(np.abs(np.max(padding[:, 1]))), np.ceil(np.abs(np.min(padding[:, 1])))
 
         # Z0 > Zmax
-        if arr[0,2] < arr[4,2]:
+        if arr[0, 2] < arr[4, 2]:
             pad_z_i, pad_z_f = np.ceil(np.abs(np.min(padding[:, 2]))), np.ceil(np.abs(np.max(padding[:, 2])))
         else:
             pad_z_i, pad_z_f = np.ceil(np.abs(np.max(padding[:, 2]))), np.ceil(np.abs(np.min(padding[:, 2])))
@@ -2002,18 +1999,17 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
 
         # Load the corner coordinates for each image
         arr_corners = np.array([[0, 0, 0],
-                            [im_shape[0], 0, 0],
-                            [0, im_shape[1], 0],
-                            [im_shape[0], im_shape[1], 0],
-                            [0, 0, im_shape[2]],
-                            [im_shape[0], 0, im_shape[2]],
-                            [0, im_shape[1], im_shape[2]],
-                            [im_shape[0], im_shape[1], im_shape[2]]])
+                                [im_shape[0], 0, 0],
+                                [0, im_shape[1], 0],
+                                [im_shape[0], im_shape[1], 0],
+                                [0, 0, im_shape[2]],
+                                [im_shape[0], 0, im_shape[2]],
+                                [0, im_shape[1], im_shape[2]],
+                                [im_shape[0], im_shape[1], im_shape[2]]])
 
         for row in arr_corners:
             arr.append(nib.affines.apply_affine(aff=im_affine, pts=row))
         fnames_padded.append(temp_file_path)
-
 
     # order fs_names in descending order based on dimensions (largest -> smallest)
     fnames_in_sorted = sorted(fnames_padded, key=lambda fname: max(Image(fname).dim), reverse=True)
@@ -2035,7 +2031,7 @@ def stitch_images(im_list: Sequence[Image], fname_out: str = 'stitched.nii.gz', 
         mask_current = sitk.Equal(resampled_images[i], 0)
         mask_overlap = sitk.Cast(sitk.Or(mask_out, mask_current), sitk.sitkFloat32)
         weighting = sitk.Divide(sitk.Add(mask_overlap, 1), 2)  # 2)
-        out = sitk.Cast(sitk.Multiply(sitk.Cast(out, sitk.sitkFloat32), sitk.Cast(weighting, sitk.sitkFloat32)),sitk.sitkInt16)
+        out = sitk.Cast(sitk.Multiply(sitk.Cast(out, sitk.sitkFloat32), sitk.Cast(weighting, sitk.sitkFloat32)), sitk.sitkInt16)
 
     sitk.WriteImage(out, fname_out)
     sitk.WriteImage(out, "non_grid_out.nii.gz")
